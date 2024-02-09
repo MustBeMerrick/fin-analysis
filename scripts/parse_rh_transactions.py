@@ -4,8 +4,7 @@ import pandas as pd
 from collections import deque
 
 # ----------------------------------- User Inputs ----------------------------------
-numbers_file = "/Users/marc/Documents/Finances/Taxes/Stock_History/rh_transactions.numbers"
-csv_file = "/Users/marc/Documents/Finances/Taxes/Stock_History/rh_transactions.csv"
+csv_file = "/Users/marc/git/fin-analysis/data/robinhood/rh_transactions.csv"
 # ----------------------------------------------------------------------------------
 
 #def convert_nmbrs_2_csv():
@@ -16,7 +15,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-u", "--underlier", help="Name of underlier (stock ticker)")
 args = parser.parse_args()
 
-out_path = "~/Documents/Finances/Taxes/Stock_History/" + args.underlier + "_transactions.csv"
+#out_path = "~/Documents/Finances/Taxes/Stock_History/" + args.underlier + "_transactions.csv"
 
 # read input file (all transactions)
 #convert_nmbrs_2_csv()
@@ -29,7 +28,10 @@ df_und = df_und.drop(columns=['index'])
 df_und['Amount'] = df_und['Amount'].replace(to_replace="\((\$.+\.[0-9][0-9])\)", value=r'-\1', regex=True)
 
 # fetch all buys/sells for desired underlier
-df_und_bs = df_und[(df_und['Trans Code'] == "Buy") | (df_und['Trans Code'] == "Sell") | (df_und['Trans Code'] == "SPL")]
+df_und_bs = df_und[(df_und['Trans Code'] ==  "Buy") | 
+                   (df_und['Trans Code'] == "Sell") | 
+                   (df_und['Trans Code'] ==  "SPL") |
+                   (df_und['Trans Code'] == "ACATS")]
 df_und_bs = df_und_bs.reset_index()
 df_und_bs = df_und_bs.drop(columns=['index'])
 df_und_bs['Amount'] = df_und_bs['Amount'].replace(to_replace=[',', '\$'], value=['', ''], regex=True)
@@ -38,7 +40,6 @@ print(df_und_bs)
 
 # Build/iterate over deques for all purchase buckets
 date_deque = deque("")
-tmp_date_deque = deque("")
 quant_deque = deque()
 notional_deque = deque()
 
@@ -69,9 +70,6 @@ for idx in reversed(df_und_bs.index):
         # accumulate P/L and update remaining_quantity
         pl += (proceeds_per_share + cb_per_share) * bought_quantity
         remaining_quantity -= bought_quantity
-
-        # accumulate bucket dates that are ammortized
-        #tmp_date_deque.append(date_deque.popleft())
 
         print(date_deque.popleft(), "bucket is gone. ", remaining_quantity, "shares remain. PL =", (proceeds_per_share + cb_per_share) * bought_quantity)
       else:
@@ -105,21 +103,33 @@ for idx in reversed(df_und_bs.index):
 
     # calculate split factor
     split = (cum_shares + add_shares)/cum_shares
-    print("split factor:", split)
+    sf = "{0}:1".format(int(split)) if (split > 1.0) else "1:{0}".format(int(1/split))
+    print(args.underlier, " ", sf, " split on", df_und_bs.loc[idx]['Activity Date'])
 
     # update bucket quantities
     for d_i in range(len(quant_deque)):
       quant_deque[d_i] *= split
 
   elif (df_und_bs.loc[idx]['Trans Code'] == "ACATS"):
-    # build df from deques
 
+    # build df from deques
+    df_tmp = pd.DataFrame([list(date_deque), list(quant_deque), list(notional_deque)]).transpose()
 
     # rearrange df by date
-
+    df_date_tmp = df_tmp[0].str.split('/',expand=True)
+    df_tmp = pd.concat([df_date_tmp[0].apply(pd.to_numeric), df_date_tmp[1].apply(pd.to_numeric), df_date_tmp[2].apply(pd.to_numeric), df_tmp[0], df_tmp[1], df_tmp[2]], axis=1, keys=[0,1,2,3,4,5])
+    df_tmp = df_tmp.sort_values(by=[2,0,1])
+    df_tmp = df_tmp.reset_index()
+    df_tmp = df_tmp.drop(columns=['index'])
 
     # build updated deques
-
+    date_deque = deque("")
+    quant_deque = deque()
+    notional_deque = deque()
+    for idx2 in df_tmp.index:
+      date_deque.append(df_tmp.loc[idx2][3])
+      quant_deque.append(df_tmp.loc[idx2][4])
+      notional_deque.append(df_tmp.loc[idx2][5])
 
 # export desired underlier info to file
 #df_und.to_csv(out_path, index=False)
