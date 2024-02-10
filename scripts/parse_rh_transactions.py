@@ -52,7 +52,7 @@ df_und = df_und.reset_index()
 df_und = df_und.drop(columns=['index'])
 df_und['Amount'] = df_und['Amount'].replace(to_replace="\((\$.+\.[0-9][0-9])\)", value=r'-\1', regex=True)
 
-# fetch all buys/sells for desired underlier
+# fetch all buys/sells/splits/ACATS for desired underlier
 df_und_bs = df_und[(df_und['Trans Code'] ==  "Buy") | 
                    (df_und['Trans Code'] == "Sell") | 
                    (df_und['Trans Code'] ==  "SPL") |
