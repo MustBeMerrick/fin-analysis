@@ -2,6 +2,8 @@ import argparse
 import csv
 import pandas as pd
 from collections import deque
+import locale
+locale.setlocale( locale.LC_ALL, '' )
 
 # ----------------------------------- User Inputs ----------------------------------
 csv_file = "/Users/marc/git/fin-analysis/data/robinhood/rh_transactions.csv"
@@ -37,6 +39,7 @@ df_und_bs = df_und_bs.drop(columns=['index'])
 df_und_bs['Amount'] = df_und_bs['Amount'].replace(to_replace=[',', '\$'], value=['', ''], regex=True)
 
 print(df_und_bs)
+print()
 
 # Build/iterate over deques for all purchase buckets
 date_deque = deque("")
@@ -51,8 +54,9 @@ for idx in reversed(df_und_bs.index):
     notional_deque.append(float(df_und_bs.loc[idx]['Amount']))
   elif (df_und_bs.loc[idx]['Trans Code'] == "Sell"):
     # sell = pop from FIFO
-    print_str = "Sale on " + df_und_bs.loc[idx]['Activity Date'] + " (" + df_und_bs.loc[idx]['Quantity'] + " shares)"
-    print("---------------------", print_str, "---------------------")
+    print_str = "Sold " + df_und_bs.loc[idx]['Quantity'] + " shares on " + df_und_bs.loc[idx]['Activity Date'] + " for " + df_und_bs.loc[idx]['Price'] + "/share " + "(Notional: " + locale.currency(float(df_und_bs.loc[idx]['Amount']), grouping=True) + ")"
+    print("-------------------------------", print_str, "-------------------------------")
+    print("Security    Quantity   Date Acquired       Price      Cost Basis          PL".format())
     remaining_quantity = float(df_und_bs.loc[idx]['Quantity'])
     proceeds_per_share = float(df_und_bs.loc[idx]['Amount'])/remaining_quantity
     pl = 0
@@ -64,14 +68,19 @@ for idx in reversed(df_und_bs.index):
         bought_quantity = quant_deque.popleft()
         bought_notional = notional_deque.popleft()
 
+        # pretty print
+        bought_quantity_print = "{:.5f}".format(bought_quantity)
+
         # calculate cost basis per share of the bucket
         cb_per_share = bought_notional/bought_quantity
 
         # accumulate P/L and update remaining_quantity
-        pl += (proceeds_per_share + cb_per_share) * bought_quantity
+        pl_i = (proceeds_per_share + cb_per_share) * bought_quantity
+        pl += pl_i
         remaining_quantity -= bought_quantity
 
-        print(date_deque.popleft(), "bucket is gone. ", remaining_quantity, "shares remain. PL =", (proceeds_per_share + cb_per_share) * bought_quantity)
+        acq_print_str = "{:>8}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, bought_quantity_print, date_deque.popleft(), locale.currency(abs(cb_per_share)), locale.currency(abs(cb_per_share*bought_quantity), grouping=True), locale.currency(pl_i, grouping=True))
+        print(acq_print_str)
       else:
         # Tail of FIFO will be modified
 
@@ -81,17 +90,22 @@ for idx in reversed(df_und_bs.index):
         # not entire quantity will be ammortized- just remaining quantity
         bought_quantity = remaining_quantity
 
+        # pretty print
+        bought_quantity_print = "{:.5f}".format(bought_quantity)
+
         # update FIFO tails
         quant_deque[0] -= bought_quantity
         notional_deque[0] -= cb_per_share * bought_quantity
 
         # accumulate P/L and update remaining_quantity
-        pl += (proceeds_per_share + cb_per_share) * bought_quantity
+        pl_i = (proceeds_per_share + cb_per_share) * bought_quantity
+        pl += pl_i
         remaining_quantity -= bought_quantity
 
-        print(date_deque[0], "bucket has", quant_deque[0], "shares remaining. PL =", (proceeds_per_share + cb_per_share) * bought_quantity)
+        acq_print_str = "{:>8}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, bought_quantity_print, date_deque[0], locale.currency(abs(cb_per_share)), locale.currency(abs(cb_per_share*bought_quantity), grouping=True), locale.currency(pl_i, grouping=True))
+        print(acq_print_str)
 
-    print("P/L:", pl)
+    print("P/L:", locale.currency(pl, grouping=True))
 
   elif (df_und_bs.loc[idx]['Trans Code'] == "SPL"):
     cum_shares = 0
