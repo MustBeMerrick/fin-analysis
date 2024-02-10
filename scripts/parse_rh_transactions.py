@@ -9,6 +9,30 @@ locale.setlocale( locale.LC_ALL, '' )
 csv_file = "~/git/fin-analysis/data/robinhood/rh_transactions.csv"
 # ----------------------------------------------------------------------------------
 
+# global FIFO
+date_deque = deque("")
+quant_deque = deque()
+notional_deque = deque()
+
+# FIFO push
+def fifo_push(date, quantity, amount):
+  date_deque.append(date)
+  quant_deque.append(quantity)
+  notional_deque.append(amount)
+
+# FIFO pop
+def fifo_pop():
+  date = date_deque.popleft()
+  quantity = quant_deque.popleft()
+  amount = notional_deque.popleft()
+
+  return date, quantity, amount
+
+# FIFO modify tail
+def fifo_modify_tail(quantity, amount):
+  quant_deque[0]    -= quantity
+  notional_deque[0] -= amount
+
 #def convert_nmbrs_2_csv():
   # To Do
 
@@ -16,8 +40,6 @@ csv_file = "~/git/fin-analysis/data/robinhood/rh_transactions.csv"
 parser = argparse.ArgumentParser()
 parser.add_argument("-u", "--underlier", help="Name of underlier (stock ticker)")
 args = parser.parse_args()
-
-#out_path = "~/Documents/Finances/Taxes/Stock_History/" + args.underlier + "_transactions.csv"
 
 # read input file (all transactions)
 #convert_nmbrs_2_csv()
@@ -41,17 +63,11 @@ df_und_bs['Amount'] = df_und_bs['Amount'].replace(to_replace=[',', '\$'], value=
 print(df_und_bs)
 print()
 
-# Build/iterate over deques for all purchase buckets
-date_deque = deque("")
-quant_deque = deque()
-notional_deque = deque()
-
+# iterate over all transactions
 for idx in reversed(df_und_bs.index):
   if (df_und_bs.loc[idx]['Trans Code'] == "Buy"):
     # buy = push to FIFO
-    date_deque.append(df_und_bs.loc[idx]['Activity Date'])
-    quant_deque.append(float(df_und_bs.loc[idx]['Quantity']))
-    notional_deque.append(float(df_und_bs.loc[idx]['Amount']))
+    fifo_push(df_und_bs.loc[idx]['Activity Date'], float(df_und_bs.loc[idx]['Quantity']), float(df_und_bs.loc[idx]['Amount']))
   elif (df_und_bs.loc[idx]['Trans Code'] == "Sell"):
     # sell = pop from FIFO
     print_str = "Sold " + df_und_bs.loc[idx]['Quantity'] + " shares on " + df_und_bs.loc[idx]['Activity Date'] + " for " + df_und_bs.loc[idx]['Price'] + "/share " + "(Notional: " + locale.currency(float(df_und_bs.loc[idx]['Amount']), grouping=True) + ")"
@@ -59,55 +75,48 @@ for idx in reversed(df_und_bs.index):
     print("Security    Quantity   Date Acquired       Price      Cost Basis          PL".format())
     remaining_quantity = float(df_und_bs.loc[idx]['Quantity'])
     proceeds_per_share = float(df_und_bs.loc[idx]['Amount'])/remaining_quantity
-    pl = 0
+    pl_aggr = 0
     while remaining_quantity > 0:
       if (remaining_quantity >= quant_deque[0]):
         # entire bucket will be popped
 
-        # grab quantity/amounts from the oldest purchase bucket
-        bought_quantity = quant_deque.popleft()
-        bought_notional = notional_deque.popleft()
-
-        # pretty print
-        bought_quantity_print = "{:.5f}".format(bought_quantity)
+        # grab date/quantity/amount from the oldest purchase bucket
+        buy_date, buy_quantity, buy_notional = fifo_pop()
 
         # calculate cost basis per share of the bucket
-        cb_per_share = bought_notional/bought_quantity
+        cb_per_share = buy_notional/buy_quantity
 
         # accumulate P/L and update remaining_quantity
-        pl_i = (proceeds_per_share + cb_per_share) * bought_quantity
-        pl += pl_i
-        remaining_quantity -= bought_quantity
-
-        acq_print_str = "{:>8}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, bought_quantity_print, date_deque.popleft(), locale.currency(abs(cb_per_share)), locale.currency(abs(cb_per_share*bought_quantity), grouping=True), locale.currency(pl_i, grouping=True))
-        print(acq_print_str)
+        pl_i = (proceeds_per_share + cb_per_share) * buy_quantity
+        pl_aggr += pl_i
+        remaining_quantity -= buy_quantity
       else:
         # Tail of FIFO will be modified
+
+        # not entire quantity will be ammortized- just remaining quantity
+        buy_quantity = remaining_quantity
+        buy_date = date_deque[0]
 
         # calculate cost basis per share of the bucket in use
         cb_per_share = notional_deque[0]/quant_deque[0]
 
-        # not entire quantity will be ammortized- just remaining quantity
-        bought_quantity = remaining_quantity
-
-        # pretty print
-        bought_quantity_print = "{:.5f}".format(bought_quantity)
-
         # update FIFO tails
-        quant_deque[0] -= bought_quantity
-        notional_deque[0] -= cb_per_share * bought_quantity
+        fifo_modify_tail(buy_quantity, cb_per_share * buy_quantity)
 
         # accumulate P/L and update remaining_quantity
-        pl_i = (proceeds_per_share + cb_per_share) * bought_quantity
-        pl += pl_i
-        remaining_quantity -= bought_quantity
+        pl_i = (proceeds_per_share + cb_per_share) * buy_quantity
+        pl_aggr += pl_i
+        remaining_quantity -= buy_quantity
 
-        acq_print_str = "{:>8}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, bought_quantity_print, date_deque[0], locale.currency(abs(cb_per_share)), locale.currency(abs(cb_per_share*bought_quantity), grouping=True), locale.currency(pl_i, grouping=True))
-        print(acq_print_str)
+      # print purchase sub-line
+      acq_print_str = "{:>8}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, "{:.5f}".format(buy_quantity), buy_date, locale.currency(abs(cb_per_share)), locale.currency(abs(cb_per_share*buy_quantity), grouping=True), locale.currency(pl_i, grouping=True))
+      print(acq_print_str)
 
-    print("P/L:", locale.currency(pl, grouping=True))
+    print("P/L:", locale.currency(pl_aggr, grouping=True))
 
   elif (df_und_bs.loc[idx]['Trans Code'] == "SPL"):
+    # handle stock split
+
     cum_shares = 0
     add_shares = float(df_und_bs.loc[idx]['Quantity'])
     
@@ -125,6 +134,11 @@ for idx in reversed(df_und_bs.index):
       quant_deque[d_i] *= split
 
   elif (df_und_bs.loc[idx]['Trans Code'] == "ACATS"):
+    # handle ACATS transfers
+    # *NOTE* This code re-orders the FIFO based on purchase dates.
+    #        Must add manual line item to src file w/ Trans_Code = ACATS.
+    #        Buy line items then added underneath ACATS line (with external 
+    #        sales already deducted and accounted for)
 
     # build df from deques
     df_tmp = pd.DataFrame([list(date_deque), list(quant_deque), list(notional_deque)]).transpose()
@@ -144,9 +158,6 @@ for idx in reversed(df_und_bs.index):
       date_deque.append(df_tmp.loc[idx2][3])
       quant_deque.append(df_tmp.loc[idx2][4])
       notional_deque.append(df_tmp.loc[idx2][5])
-
-# export desired underlier info to file
-#df_und.to_csv(out_path, index=False)
 
 
 
