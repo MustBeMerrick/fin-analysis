@@ -1,13 +1,10 @@
 import argparse
 import csv
+import pathlib
 import pandas as pd
 from collections import deque
 import locale
 locale.setlocale( locale.LC_ALL, '' )
-
-# ----------------------------------- User Inputs ----------------------------------
-csv_file = "~/git/fin-analysis/data/robinhood/rh_transactions.csv"
-# ----------------------------------------------------------------------------------
 
 # global FIFO
 date_deque = deque("")
@@ -44,6 +41,8 @@ args = parser.parse_args()
 
 # read input file (all transactions)
 #convert_nmbrs_2_csv()
+# get path to src RH data
+csv_file = str(pathlib.Path(__file__).parent.resolve()) + "/../data/robinhood/rh_transactions.csv"
 df = pd.read_csv (csv_file)
 
 # build df for desired underlier
