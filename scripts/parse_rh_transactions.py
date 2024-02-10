@@ -71,9 +71,32 @@ for idx in reversed(df_und_bs.index):
     fifo_push(df_und_bs.loc[idx]['Activity Date'], float(df_und_bs.loc[idx]['Quantity']), float(df_und_bs.loc[idx]['Amount']))
   elif (df_und_bs.loc[idx]['Trans Code'] == "Sell"):
     # sell = pop from FIFO
-    print_str = "Sold " + df_und_bs.loc[idx]['Quantity'] + " shares on " + df_und_bs.loc[idx]['Activity Date'] + " for " + df_und_bs.loc[idx]['Price'] + "/share " + "(Notional: " + locale.currency(float(df_und_bs.loc[idx]['Amount']), grouping=True) + ")"
+    
+    # check if sale was via option assignment
+    via_assignment = ""
+    proceeds_adj_str = ""
+    is_via_assignment=False
+    if (" Assigned" in df_und_bs.loc[idx]['Description']):
+      is_via_assignment=True
+      via_assignment = "(via assignment) "
+      proceeds_adj_str = "  Proceeds (adj)"
+
+      # build option name
+      option_name = args.underlier + " " + df_und_bs.loc[idx]['Activity Date'] + " Call" + " " + df_und_bs.loc[idx]['Price']
+
+      # fetch all option transactions for desired underlier
+      df_und_options = df_und[(df_und['Trans Code'] == "STO") | 
+                              (df_und['Trans Code'] == "STC") |
+                              (df_und['Trans Code'] == "BTO") |
+                              (df_und['Trans Code'] == "BTC")]
+      df_und_options = df_und_options.reset_index()
+      df_und_options = df_und_options.drop(columns=['index'])
+      df_und_options['Amount'] = df_und_options['Amount'].replace(to_replace=[',', '\$'], value=['', ''], regex=True)
+      prem=float(df_und_options[df_und_options["Description"] == option_name]["Amount"].values[0])
+
+    print_str = "Sold " + df_und_bs.loc[idx]['Quantity'] + " shares " + via_assignment + "on " + df_und_bs.loc[idx]['Activity Date'] + " for " + df_und_bs.loc[idx]['Price'] + "/share " + "(Notional: " + locale.currency(float(df_und_bs.loc[idx]['Amount']), grouping=True) + ")"
     print("-------------------------------", print_str, "-------------------------------")
-    print("         Security    Quantity    Proceeds   Date Acquired       Price      Cost Basis          PL".format())
+    print("     Security   Date Sold    Quantity    Proceeds" + proceeds_adj_str + "   Date Acquired       Price      Cost Basis          PL".format())
     remaining_quantity = float(df_und_bs.loc[idx]['Quantity'])
     proceeds_per_share = float(df_und_bs.loc[idx]['Amount'])/remaining_quantity
     pl_aggr = 0
@@ -114,11 +137,19 @@ for idx in reversed(df_und_bs.index):
       remaining_quantity -= buy_quantity
 
       # print purchase sub-line
-      acq_print_str = "         {:>8}{:>12}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
+      if is_via_assignment:
+        acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, df_und_bs.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), locale.currency(proceeds_i+prem, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
+      else:
+        acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, df_und_bs.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
+      
       print(acq_print_str)
 
-    print("----------------------------------------------------------------------------------------------------")
-    total_print_str="Total:{:>35}{:>44}{:>12}".format(locale.currency(proceeds_aggr, grouping=True), locale.currency(cb_aggr, grouping=True), locale.currency(pl_aggr, grouping=True))
+    print("---------------------------------------------------------------------------------------------------------------------------")
+    if is_via_assignment:
+      total_print_str="Total:{:>7}{:>12}{:>12}{:>12}{:>16}{:>16}{:>12}{:>16}{:>12}".format("", "", "", locale.currency(proceeds_aggr, grouping=True), "", "", "", locale.currency(cb_aggr, grouping=True), locale.currency(pl_aggr, grouping=True))
+    else:
+      total_print_str="Total:{:>7}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>12}".format("", "", "", locale.currency(proceeds_aggr, grouping=True), "", "", locale.currency(cb_aggr, grouping=True), locale.currency(pl_aggr, grouping=True))
+
     print(total_print_str)
     print()
 
@@ -166,7 +197,5 @@ for idx in reversed(df_und_bs.index):
       date_deque.append(df_tmp.loc[idx2][3])
       quant_deque.append(df_tmp.loc[idx2][4])
       notional_deque.append(df_tmp.loc[idx2][5])
-
-
 
 
