@@ -4,6 +4,7 @@ import pathlib
 import pandas as pd
 from collections import deque
 import locale
+import math
 locale.setlocale( locale.LC_ALL, '' )
 
 # global FIFO
@@ -76,7 +77,7 @@ for idx in reversed(df_und_bs.index):
     via_assignment = ""
     proceeds_adj_str = ""
     is_via_assignment=False
-    if (" Assigned" in df_und_bs.loc[idx]['Description']):
+    if (" Assigned" in str(df_und_bs.loc[idx]['Description'])):
       is_via_assignment=True
       via_assignment = "(via assignment) "
       proceeds_adj_str = "  Proceeds (adj)"
