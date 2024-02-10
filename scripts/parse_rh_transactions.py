@@ -73,10 +73,12 @@ for idx in reversed(df_und_bs.index):
     # sell = pop from FIFO
     print_str = "Sold " + df_und_bs.loc[idx]['Quantity'] + " shares on " + df_und_bs.loc[idx]['Activity Date'] + " for " + df_und_bs.loc[idx]['Price'] + "/share " + "(Notional: " + locale.currency(float(df_und_bs.loc[idx]['Amount']), grouping=True) + ")"
     print("-------------------------------", print_str, "-------------------------------")
-    print("Security    Quantity   Date Acquired       Price      Cost Basis          PL".format())
+    print("         Security    Quantity    Proceeds   Date Acquired       Price      Cost Basis          PL".format())
     remaining_quantity = float(df_und_bs.loc[idx]['Quantity'])
     proceeds_per_share = float(df_und_bs.loc[idx]['Amount'])/remaining_quantity
     pl_aggr = 0
+    proceeds_aggr = 0
+    cb_aggr = 0
     while remaining_quantity > 0:
       if (remaining_quantity >= quant_deque[0]):
         # entire bucket will be popped
@@ -87,10 +89,6 @@ for idx in reversed(df_und_bs.index):
         # calculate cost basis per share of the bucket
         cb_per_share = buy_notional/buy_quantity
 
-        # accumulate P/L and update remaining_quantity
-        pl_i = (proceeds_per_share + cb_per_share) * buy_quantity
-        pl_aggr += pl_i
-        remaining_quantity -= buy_quantity
       else:
         # Tail of FIFO will be modified
 
@@ -103,17 +101,26 @@ for idx in reversed(df_und_bs.index):
 
         # update FIFO tails
         fifo_modify_tail(buy_quantity, cb_per_share * buy_quantity)
+      
+      #endif
 
-        # accumulate P/L and update remaining_quantity
-        pl_i = (proceeds_per_share + cb_per_share) * buy_quantity
-        pl_aggr += pl_i
-        remaining_quantity -= buy_quantity
+      # accumulate P/L, proceeds, cb and update remaining_quantity
+      pl_i = (proceeds_per_share + cb_per_share) * buy_quantity
+      proceeds_i = proceeds_per_share * buy_quantity
+      cb_i = abs(cb_per_share*buy_quantity)
+      pl_aggr += pl_i
+      proceeds_aggr += proceeds_i
+      cb_aggr += cb_i
+      remaining_quantity -= buy_quantity
 
       # print purchase sub-line
-      acq_print_str = "{:>8}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, "{:.5f}".format(buy_quantity), buy_date, locale.currency(abs(cb_per_share)), locale.currency(abs(cb_per_share*buy_quantity), grouping=True), locale.currency(pl_i, grouping=True))
+      acq_print_str = "         {:>8}{:>12}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
       print(acq_print_str)
 
-    print("P/L:", locale.currency(pl_aggr, grouping=True))
+    print("----------------------------------------------------------------------------------------------------")
+    total_print_str="Total:{:>35}{:>44}{:>12}".format(locale.currency(proceeds_aggr, grouping=True), locale.currency(cb_aggr, grouping=True), locale.currency(pl_aggr, grouping=True))
+    print(total_print_str)
+    print()
 
   elif (df_und_bs.loc[idx]['Trans Code'] == "SPL"):
     # handle stock split
