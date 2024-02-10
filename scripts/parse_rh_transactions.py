@@ -6,7 +6,7 @@ import locale
 locale.setlocale( locale.LC_ALL, '' )
 
 # ----------------------------------- User Inputs ----------------------------------
-csv_file = "/Users/marc/git/fin-analysis/data/robinhood/rh_transactions.csv"
+csv_file = "~/git/fin-analysis/data/robinhood/rh_transactions.csv"
 # ----------------------------------------------------------------------------------
 
 #def convert_nmbrs_2_csv():
