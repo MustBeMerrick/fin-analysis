@@ -39,6 +39,7 @@ def fifo_modify_tail(quantity, amount):
 # parse arguments
 parser = argparse.ArgumentParser()
 parser.add_argument("-u", "--underlier", help="Name of underlier (stock ticker)")
+parser.add_argument("-d", "--debug", action='store_true', help="print debug info. I.e. src line items")
 args = parser.parse_args()
 
 # read input file (all transactions)
@@ -60,8 +61,9 @@ df_und_bs = df_und_bs.reset_index()
 df_und_bs = df_und_bs.drop(columns=['index'])
 df_und_bs['Amount'] = df_und_bs['Amount'].replace(to_replace=[',', '\$'], value=['', ''], regex=True)
 
-print(df_und_bs)
-print()
+if args.debug:
+  print(df_und_bs)
+  print()
 
 # iterate over all transactions
 for idx in reversed(df_und_bs.index):
