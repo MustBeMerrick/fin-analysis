@@ -7,6 +7,9 @@ import locale
 import math
 locale.setlocale( locale.LC_ALL, '' )
 
+# settings
+pd.set_option('display.max_rows', 5000)
+
 # global FIFO
 date_deque = deque("")
 quant_deque = deque()
@@ -31,6 +34,44 @@ def fifo_modify_tail(quantity, amount):
   quant_deque[0]    -= quantity
   notional_deque[0] -= amount
 
+# Filter dataframe for only transactions of underlier
+def build_df_for_und(df, underlier):
+  df_und=df[df['Instrument'] == underlier]
+  
+  # fetch all buys/sells/splits/ACATS/options for desired underlier
+  df_und = df_und[(df_und['Trans Code'] ==   "Buy") | 
+                  (df_und['Trans Code'] ==  "Sell") | 
+                  (df_und['Trans Code'] ==   "SPL") |
+                  (df_und['Trans Code'] == "ACATS") |
+                  (df_und['Trans Code'] ==   "STO") | 
+                  (df_und['Trans Code'] ==   "STC") |
+                  (df_und['Trans Code'] ==   "BTO") |
+                  (df_und['Trans Code'] ==   "BTC")]
+  df_und = df_und.reset_index()
+  df_und = df_und.drop(columns=['index'])
+  df_und['Amount'] = df_und['Amount'].replace(to_replace="\((\$.+\.[0-9][0-9])\)", value=r'-\1',   regex=True)
+  df_und['Amount'] = df_und['Amount'].replace(to_replace=[',', '\$'],              value=['', ''], regex=True)
+
+  return df_und
+
+# Check if sale is via option assignment
+def sale_is_via_assignment(df_und, idx):
+  via_assignment_str = ""
+  proceeds_adj_str = ""
+  is_via_assignment=False
+  if (" Assigned" in str(df_und.loc[idx]['Description'])):
+    is_via_assignment=True
+    via_assignment_str = "(via assignment) "
+    proceeds_adj_str = "  Proceeds (adj)"
+  
+    # build option name
+    option_name = args.underlier + " " + df_und.loc[idx]['Activity Date'] + " Call" + " " + df_und.loc[idx]['Price']
+  
+    # lookup option premium that triggered the sale
+    prem=float(df_und[df_und["Description"] == option_name]["Amount"].values[0])
+
+    return via_assignment_str, proceeds_adj_str, is_via_assignment, prem
+
 #def convert_nmbrs_2_csv():
   # To Do
 
@@ -47,59 +88,28 @@ csv_file = str(pathlib.Path(__file__).parent.resolve()) + "/../data/robinhood/rh
 df = pd.read_csv (csv_file)
 
 # build df for desired underlier
-df_und=df[df['Instrument'] == args.underlier]
-df_und = df_und.reset_index()
-df_und = df_und.drop(columns=['index'])
-df_und['Amount'] = df_und['Amount'].replace(to_replace="\((\$.+\.[0-9][0-9])\)", value=r'-\1', regex=True)
-
-# fetch all buys/sells/splits/ACATS for desired underlier
-df_und_bs = df_und[(df_und['Trans Code'] ==  "Buy") | 
-                   (df_und['Trans Code'] == "Sell") | 
-                   (df_und['Trans Code'] ==  "SPL") |
-                   (df_und['Trans Code'] == "ACATS")]
-df_und_bs = df_und_bs.reset_index()
-df_und_bs = df_und_bs.drop(columns=['index'])
-df_und_bs['Amount'] = df_und_bs['Amount'].replace(to_replace=[',', '\$'], value=['', ''], regex=True)
+df_und = build_df_for_und(df, args.underlier)
 
 if args.debug:
-  print(df_und_bs)
+  print(df_und)
   print()
 
 # iterate over all transactions
-for idx in reversed(df_und_bs.index):
-  if (df_und_bs.loc[idx]['Trans Code'] == "Buy"):
+for idx in reversed(df_und.index):
+  if (df_und.loc[idx]['Trans Code'] == "Buy"):
     # buy = push to FIFO
-    fifo_push(df_und_bs.loc[idx]['Activity Date'], float(df_und_bs.loc[idx]['Quantity']), float(df_und_bs.loc[idx]['Amount']))
-  elif (df_und_bs.loc[idx]['Trans Code'] == "Sell"):
+    fifo_push(df_und.loc[idx]['Activity Date'], float(df_und.loc[idx]['Quantity']), float(df_und.loc[idx]['Amount']))
+  elif (df_und.loc[idx]['Trans Code'] == "Sell"):
     # sell = pop from FIFO
     
     # check if sale was via option assignment
-    via_assignment = ""
-    proceeds_adj_str = ""
-    is_via_assignment=False
-    if (" Assigned" in str(df_und_bs.loc[idx]['Description'])):
-      is_via_assignment=True
-      via_assignment = "(via assignment) "
-      proceeds_adj_str = "  Proceeds (adj)"
+    via_assignment_str, proceeds_adj_str, is_via_assignment, prem = sale_is_via_assignment(df_und, idx)
 
-      # build option name
-      option_name = args.underlier + " " + df_und_bs.loc[idx]['Activity Date'] + " Call" + " " + df_und_bs.loc[idx]['Price']
-
-      # fetch all option transactions for desired underlier
-      df_und_options = df_und[(df_und['Trans Code'] == "STO") | 
-                              (df_und['Trans Code'] == "STC") |
-                              (df_und['Trans Code'] == "BTO") |
-                              (df_und['Trans Code'] == "BTC")]
-      df_und_options = df_und_options.reset_index()
-      df_und_options = df_und_options.drop(columns=['index'])
-      df_und_options['Amount'] = df_und_options['Amount'].replace(to_replace=[',', '\$'], value=['', ''], regex=True)
-      prem=float(df_und_options[df_und_options["Description"] == option_name]["Amount"].values[0])
-
-    print_str = "Sold " + df_und_bs.loc[idx]['Quantity'] + " shares " + via_assignment + "on " + df_und_bs.loc[idx]['Activity Date'] + " for " + df_und_bs.loc[idx]['Price'] + "/share " + "(Notional: " + locale.currency(float(df_und_bs.loc[idx]['Amount']), grouping=True) + ")"
+    print_str = "Sold " + df_und.loc[idx]['Quantity'] + " shares " + via_assignment_str + "on " + df_und.loc[idx]['Activity Date'] + " for " + df_und.loc[idx]['Price'] + "/share " + "(Notional: " + locale.currency(float(df_und.loc[idx]['Amount']), grouping=True) + ")"
     print("-------------------------------", print_str, "-------------------------------")
     print("     Security   Date Sold    Quantity    Proceeds" + proceeds_adj_str + "   Date Acquired       Price      Cost Basis          PL".format())
-    remaining_quantity = float(df_und_bs.loc[idx]['Quantity'])
-    proceeds_per_share = float(df_und_bs.loc[idx]['Amount'])/remaining_quantity
+    remaining_quantity = float(df_und.loc[idx]['Quantity'])
+    proceeds_per_share = float(df_und.loc[idx]['Amount'])/remaining_quantity
     pl_aggr = 0
     proceeds_aggr = 0
     cb_aggr = 0
@@ -139,9 +149,9 @@ for idx in reversed(df_und_bs.index):
 
       # print purchase sub-line
       if is_via_assignment:
-        acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, df_und_bs.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), locale.currency(proceeds_i+prem, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
+        acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, df_und.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), locale.currency(proceeds_i+prem, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
       else:
-        acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, df_und_bs.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
+        acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, df_und.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
       
       print(acq_print_str)
 
@@ -154,11 +164,11 @@ for idx in reversed(df_und_bs.index):
     print(total_print_str)
     print()
 
-  elif (df_und_bs.loc[idx]['Trans Code'] == "SPL"):
+  elif (df_und.loc[idx]['Trans Code'] == "SPL"):
     # handle stock split
 
     cum_shares = 0
-    add_shares = float(df_und_bs.loc[idx]['Quantity'])
+    add_shares = float(df_und.loc[idx]['Quantity'])
     
     # calculate total shares owned
     for d_i in range(len(quant_deque)):
@@ -167,13 +177,13 @@ for idx in reversed(df_und_bs.index):
     # calculate split factor
     split = (cum_shares + add_shares)/cum_shares
     sf = "{0}:1".format(int(split)) if (split > 1.0) else "1:{0}".format(int(1/split))
-    print(args.underlier, " ", sf, " split on", df_und_bs.loc[idx]['Activity Date'])
+    print(args.underlier, " ", sf, " split on", df_und.loc[idx]['Activity Date'])
 
     # update bucket quantities
     for d_i in range(len(quant_deque)):
       quant_deque[d_i] *= split
 
-  elif (df_und_bs.loc[idx]['Trans Code'] == "ACATS"):
+  elif (df_und.loc[idx]['Trans Code'] == "ACATS"):
     # handle ACATS transfers
     # *NOTE* This code re-orders the FIFO based on purchase dates.
     #        Must add manual line item to src file w/ Trans_Code = ACATS.
