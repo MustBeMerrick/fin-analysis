@@ -59,6 +59,7 @@ def sale_is_via_assignment(df_und, idx):
   via_assignment_str = ""
   proceeds_adj_str = ""
   is_via_assignment=False
+  prem=0
   if (" Assigned" in str(df_und.loc[idx]['Description'])):
     is_via_assignment=True
     via_assignment_str = "(via assignment) "
@@ -70,7 +71,7 @@ def sale_is_via_assignment(df_und, idx):
     # lookup option premium that triggered the sale
     prem=float(df_und[df_und["Description"] == option_name]["Amount"].values[0])
 
-    return via_assignment_str, proceeds_adj_str, is_via_assignment, prem
+  return via_assignment_str, proceeds_adj_str, is_via_assignment, prem
 
 #def convert_nmbrs_2_csv():
   # To Do
