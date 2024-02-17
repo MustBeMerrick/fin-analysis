@@ -46,7 +46,8 @@ def build_df_for_und(df, underlier):
                   (df_und['Trans Code'] ==   "STO") | 
                   (df_und['Trans Code'] ==   "STC") |
                   (df_und['Trans Code'] ==   "BTO") |
-                  (df_und['Trans Code'] ==   "BTC")]
+                  (df_und['Trans Code'] ==   "BTC") |
+                  (df_und['Trans Code'] == "OASGN")]
   df_und = df_und.reset_index()
   df_und = df_und.drop(columns=['index'])
   df_und['Amount'] = df_und['Amount'].replace(to_replace="\((\$.+\.[0-9][0-9])\)", value=r'-\1',   regex=True)
@@ -55,11 +56,11 @@ def build_df_for_und(df, underlier):
   return df_und
 
 # Check if sale is via option assignment
-def sale_is_via_assignment(df_und, idx):
+def sale_is_via_call_assignment(df_und, idx):
   via_assignment_str = ""
   proceeds_adj_str = ""
   is_via_assignment=False
-  prem=0
+  prems=0.0
   if (" Assigned" in str(df_und.loc[idx]['Description'])):
     is_via_assignment=True
     via_assignment_str = "(via assignment) "
@@ -67,11 +68,34 @@ def sale_is_via_assignment(df_und, idx):
   
     # build option name
     option_name = args.underlier + " " + df_und.loc[idx]['Activity Date'] + " Call" + " " + df_und.loc[idx]['Price']
-  
-    # lookup option premium that triggered the sale
-    prem=float(df_und[df_und["Description"] == option_name]["Amount"].values[0])
 
-  return via_assignment_str, proceeds_adj_str, is_via_assignment, prem
+    # fetch all (assigned) option series that triggered the sale. Place in df
+    # TODO: Need to worry about series that were BTC that did NOT trigger sale? Can aggregate still?
+    print("option: {:s}".format(option_name))
+    df_option=df_und[df_und["Description"] == option_name]
+    df_option = df_option.reset_index()
+    df_option = df_option.drop(columns=['index'])
+    
+    # TODO: for loop is inefficient 
+    # agreegate call premiums. These are typically added to proceeds of stock sale
+    for notional_i in range(1,len(df_option)):
+      prems += float(df_option.loc[notional_i]['Amount'])
+
+  return is_via_assignment, via_assignment_str, proceeds_adj_str, is_via_assignment, prems
+
+def print_sale_str(is_via_assignment, quantity, via_assignment_str, date, price, notional, prems):
+  notional_str = "Notional: {:s}".format(locale.currency(notional, grouping=True))
+  if (is_via_assignment):
+    notional_adj = locale.currency(notional + prems, grouping=True)
+    notional_str = "Notional/Adj: {:s}/{:s}".format(locale.currency(notional, grouping=True), notional_adj)
+
+  sale_str = "Sold {:.5f} shares {:s}on {:s} for {:s}/share ({:s})".format(quantity, \
+                                                                           via_assignment_str, \
+                                                                           date, \
+                                                                           price, \
+                                                                           notional_str)
+
+  print("-------------------------------", sale_str, "-------------------------------")
 
 #def convert_nmbrs_2_csv():
   # To Do
@@ -103,11 +127,10 @@ for idx in reversed(df_und.index):
   elif (df_und.loc[idx]['Trans Code'] == "Sell"):
     # sell = pop from FIFO
     
-    # check if sale was via option assignment
-    via_assignment_str, proceeds_adj_str, is_via_assignment, prem = sale_is_via_assignment(df_und, idx)
+    # check if sale was via call assignment
+    is_via_assignment, via_assignment_str, proceeds_adj_str, is_via_assignment, prems = sale_is_via_call_assignment(df_und, idx)
 
-    print_str = "Sold " + df_und.loc[idx]['Quantity'] + " shares " + via_assignment_str + "on " + df_und.loc[idx]['Activity Date'] + " for " + df_und.loc[idx]['Price'] + "/share " + "(Notional: " + locale.currency(float(df_und.loc[idx]['Amount']), grouping=True) + ")"
-    print("-------------------------------", print_str, "-------------------------------")
+    print_sale_str(is_via_assignment, float(df_und.loc[idx]['Quantity']), via_assignment_str, df_und.loc[idx]['Activity Date'], df_und.loc[idx]['Price'], float(df_und.loc[idx]['Amount']), prems)
     print("     Security   Date Sold    Quantity    Proceeds" + proceeds_adj_str + "   Date Acquired       Price      Cost Basis          PL".format())
     remaining_quantity = float(df_und.loc[idx]['Quantity'])
     proceeds_per_share = float(df_und.loc[idx]['Amount'])/remaining_quantity
@@ -150,7 +173,7 @@ for idx in reversed(df_und.index):
 
       # print purchase sub-line
       if is_via_assignment:
-        acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, df_und.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), locale.currency(proceeds_i+prem, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
+        acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, df_und.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), "TBD", buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
       else:
         acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, df_und.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
       
