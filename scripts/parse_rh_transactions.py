@@ -76,10 +76,8 @@ def sale_is_via_call_assignment(df_und, idx):
     df_option = df_option.reset_index()
     df_option = df_option.drop(columns=['index'])
     
-    # TODO: for loop is inefficient 
     # agreegate call premiums. These are typically added to proceeds of stock sale
-    for notional_i in range(1,len(df_option)):
-      prems += float(df_option.loc[notional_i]['Amount'])
+    prems = df_option['Amount'].astype(float).sum()
 
   return is_via_assignment, via_assignment_str, proceeds_adj_str, is_via_assignment, prems
 
