@@ -165,8 +165,14 @@ for idx in reversed(df_und.index):
     # check if sale was via call assignment
     is_via_call_assignment, via_assignment_str, prems = sale_is_via_call_assignment(df_und, idx)
 
-    print_sale_str(is_via_call_assignment, float(df_und.loc[idx]['Quantity']), via_assignment_str, df_und.loc[idx]['Activity Date'], df_und.loc[idx]['Price'], float(df_und.loc[idx]['Amount']), prems)
-    print("     Security   Date Sold    Quantity    Proceeds   Date Acquired       Price      Cost Basis  Cost Basis (adj)          PL".format())
+    print_sale_str(is_via_call_assignment,
+                   float(df_und.loc[idx]['Quantity']),
+                   via_assignment_str,
+                   df_und.loc[idx]['Activity Date'],
+                   df_und.loc[idx]['Price'],
+                   float(df_und.loc[idx]['Amount']),
+                   prems)
+    print("     Security   Date Sold    Quantity    Proceeds   Date Acquired       Price      Cost Basis  Cost Basis (adj)          PL")
     remaining_quantity = float(df_und.loc[idx]['Quantity'])
     proceeds_per_share = float(df_und.loc[idx]['Amount'])/remaining_quantity
     pl_aggr = 0
@@ -217,11 +223,27 @@ for idx in reversed(df_und.index):
       remaining_quantity -= buy_quantity
 
       # print purchase sub-line
-      acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>18}{:>12}".format(args.underlier, df_und.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(cb_adj_i, grouping=True), locale.currency(pl_i, grouping=True))
+      acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>18}{:>12}".format(args.underlier,
+                                                                                          df_und.loc[idx]['Activity Date'],
+                                                                                          "{:.5f}".format(buy_quantity),
+                                                                                          locale.currency(proceeds_i, grouping=True),
+                                                                                          buy_date,
+                                                                                          locale.currency(abs(cb_per_share)),
+                                                                                          locale.currency(cb_i, grouping=True),
+                                                                                          locale.currency(cb_adj_i, grouping=True),
+                                                                                          locale.currency(pl_i, grouping=True))
       print(acq_print_str)
 
     print("---------------------------------------------------------------------------------------------------------------------------")
-    total_print_str="Total:{:>7}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>18}{:>12}".format("", "", "", locale.currency(proceeds_aggr, grouping=True), "", "", locale.currency(cb_aggr, grouping=True), locale.currency(cb_adj_aggr, grouping=True), locale.currency(pl_aggr, grouping=True))
+    total_print_str="Total:{:>7}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>18}{:>12}".format("",
+                                                                                         "",
+                                                                                         "",
+                                                                                         locale.currency(proceeds_aggr, grouping=True),
+                                                                                         "",
+                                                                                         "",
+                                                                                         locale.currency(cb_aggr, grouping=True),
+                                                                                         locale.currency(cb_adj_aggr, grouping=True),
+                                                                                         locale.currency(pl_aggr, grouping=True))
     print(total_print_str)
     print()
 
