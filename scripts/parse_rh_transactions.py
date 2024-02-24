@@ -15,6 +15,9 @@ date_deque = deque("")
 quant_deque = deque()
 notional_deque = deque()
 
+# global put df
+df_puts = pd.DataFrame()
+
 # FIFO push
 def fifo_push(date, quantity, amount):
   date_deque.append(date)
@@ -55,23 +58,37 @@ def build_df_for_und(df, underlier):
 
   return df_und
 
+# Check if purchase is via put assignment
+def purchase_is_via_put_assignment(df_und, idx):
+  global df_puts
+  # build option name
+  option_name = args.underlier + " " + df_und.loc[idx]['Activity Date'] + " Put" + " " + df_und.loc[idx]['Price']
+  
+  # fetch all (assigned) option series that triggered the purchase. Place in df
+  df_put_tmp = df_und[df_und["Description"] == option_name]
+  df_put_tmp = df_put_tmp.reset_index()
+  df_put_tmp = df_put_tmp.drop(columns=['index'])
+
+  # if purchase was due to assignment (OASGN), append to df_puts
+  if df_put_tmp.empty == False:
+    if ("OASGN" in df_put_tmp.loc[0]['Trans Code']):
+      df_put_tmp = df_put_tmp[df_put_tmp['Trans Code'] != "OASGN"]
+      df_puts = pd.concat([df_puts, df_put_tmp], ignore_index=True)
+
 # Check if sale is via option assignment
 def sale_is_via_call_assignment(df_und, idx):
   via_assignment_str = ""
-  proceeds_adj_str = ""
-  is_via_assignment=False
+  is_via_call_assignment=False
   prems=0.0
   if (" Assigned" in str(df_und.loc[idx]['Description'])):
-    is_via_assignment=True
+    is_via_call_assignment=True
     via_assignment_str = "(via assignment) "
-    proceeds_adj_str = "  Proceeds (adj)"
   
     # build option name
     option_name = args.underlier + " " + df_und.loc[idx]['Activity Date'] + " Call" + " " + df_und.loc[idx]['Price']
 
     # fetch all (assigned) option series that triggered the sale. Place in df
     # TODO: Need to worry about series that were BTC that did NOT trigger sale? Can aggregate still?
-    print("option: {:s}".format(option_name))
     df_option=df_und[df_und["Description"] == option_name]
     df_option = df_option.reset_index()
     df_option = df_option.drop(columns=['index'])
@@ -79,11 +96,26 @@ def sale_is_via_call_assignment(df_und, idx):
     # agreegate call premiums. These are typically added to proceeds of stock sale
     prems = df_option['Amount'].astype(float).sum()
 
-  return is_via_assignment, via_assignment_str, proceeds_adj_str, is_via_assignment, prems
+  return is_via_call_assignment, via_assignment_str, prems
 
-def print_sale_str(is_via_assignment, quantity, via_assignment_str, date, price, notional, prems):
+def fetch_put_prems(date_str, price_str):
+  # build option name
+  option_name = args.underlier + " " + date_str + " Put" + " " + price_str
+
+  # place all options of interest from df_puts in tmp dataframe
+  df_puts_tmp = df_puts[df_puts['Description'] == option_name]
+
+  # aggregate put premiums (if purchase was due to put assignment)
+  prems_sum = 0.0
+  if df_puts_tmp.empty == False:
+    prems_sum = df_puts_tmp['Amount'].astype(float).sum()
+
+  return prems_sum
+
+
+def print_sale_str(is_via_call_assignment, quantity, via_assignment_str, date, price, notional, prems):
   notional_str = "Notional: {:s}".format(locale.currency(notional, grouping=True))
-  if (is_via_assignment):
+  if (is_via_call_assignment):
     notional_adj = locale.currency(notional + prems, grouping=True)
     notional_str = "Notional/Adj: {:s}/{:s}".format(locale.currency(notional, grouping=True), notional_adj)
 
@@ -122,19 +154,25 @@ for idx in reversed(df_und.index):
   if (df_und.loc[idx]['Trans Code'] == "Buy"):
     # buy = push to FIFO
     fifo_push(df_und.loc[idx]['Activity Date'], float(df_und.loc[idx]['Quantity']), float(df_und.loc[idx]['Amount']))
+
+    # check if purchase was due to put assignment
+    is_via_put_assignment = purchase_is_via_put_assignment(df_und, idx)
+
+    # if result of put assignment, append to put df
   elif (df_und.loc[idx]['Trans Code'] == "Sell"):
     # sell = pop from FIFO
     
     # check if sale was via call assignment
-    is_via_assignment, via_assignment_str, proceeds_adj_str, is_via_assignment, prems = sale_is_via_call_assignment(df_und, idx)
+    is_via_call_assignment, via_assignment_str, prems = sale_is_via_call_assignment(df_und, idx)
 
-    print_sale_str(is_via_assignment, float(df_und.loc[idx]['Quantity']), via_assignment_str, df_und.loc[idx]['Activity Date'], df_und.loc[idx]['Price'], float(df_und.loc[idx]['Amount']), prems)
-    print("     Security   Date Sold    Quantity    Proceeds" + proceeds_adj_str + "   Date Acquired       Price      Cost Basis          PL".format())
+    print_sale_str(is_via_call_assignment, float(df_und.loc[idx]['Quantity']), via_assignment_str, df_und.loc[idx]['Activity Date'], df_und.loc[idx]['Price'], float(df_und.loc[idx]['Amount']), prems)
+    print("     Security   Date Sold    Quantity    Proceeds   Date Acquired       Price      Cost Basis  Cost Basis (adj)          PL".format())
     remaining_quantity = float(df_und.loc[idx]['Quantity'])
     proceeds_per_share = float(df_und.loc[idx]['Amount'])/remaining_quantity
     pl_aggr = 0
     proceeds_aggr = 0
     cb_aggr = 0
+    cb_adj_aggr = 0
     while remaining_quantity > 0:
       if (remaining_quantity >= quant_deque[0]):
         # entire bucket will be popped
@@ -160,29 +198,30 @@ for idx in reversed(df_und.index):
       
       #endif
 
-      # accumulate P/L, proceeds, cb and update remaining_quantity
-      pl_i = (proceeds_per_share + cb_per_share) * buy_quantity
+      # fetch prems to adjust cost basis if needed (returns 0 if not due to put assignment)
+      prem_total = fetch_put_prems(buy_date, locale.currency(abs(cb_per_share)))
+
+      # accumulate proceeds, cb/cb_adj, P/L and update remaining_quantity
       proceeds_i = proceeds_per_share * buy_quantity
-      cb_i = abs(cb_per_share*buy_quantity)
-      pl_aggr += pl_i
       proceeds_aggr += proceeds_i
+
+      cb_i = abs(cb_per_share*buy_quantity)
       cb_aggr += cb_i
+
+      cb_adj_i = cb_i - prem_total
+      cb_adj_aggr += cb_adj_i
+
+      pl_i = ((proceeds_per_share + cb_per_share) * buy_quantity) + prem_total
+      pl_aggr += pl_i
+
       remaining_quantity -= buy_quantity
 
       # print purchase sub-line
-      if is_via_assignment:
-        acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, df_und.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), "TBD", buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
-      else:
-        acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>12}".format(args.underlier, df_und.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(pl_i, grouping=True))
-      
+      acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>18}{:>12}".format(args.underlier, df_und.loc[idx]['Activity Date'], "{:.5f}".format(buy_quantity), locale.currency(proceeds_i, grouping=True), buy_date, locale.currency(abs(cb_per_share)), locale.currency(cb_i, grouping=True), locale.currency(cb_adj_i, grouping=True), locale.currency(pl_i, grouping=True))
       print(acq_print_str)
 
     print("---------------------------------------------------------------------------------------------------------------------------")
-    if is_via_assignment:
-      total_print_str="Total:{:>7}{:>12}{:>12}{:>12}{:>16}{:>16}{:>12}{:>16}{:>12}".format("", "", "", locale.currency(proceeds_aggr, grouping=True), "", "", "", locale.currency(cb_aggr, grouping=True), locale.currency(pl_aggr, grouping=True))
-    else:
-      total_print_str="Total:{:>7}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>12}".format("", "", "", locale.currency(proceeds_aggr, grouping=True), "", "", locale.currency(cb_aggr, grouping=True), locale.currency(pl_aggr, grouping=True))
-
+    total_print_str="Total:{:>7}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>18}{:>12}".format("", "", "", locale.currency(proceeds_aggr, grouping=True), "", "", locale.currency(cb_aggr, grouping=True), locale.currency(cb_adj_aggr, grouping=True), locale.currency(pl_aggr, grouping=True))
     print(total_print_str)
     print()
 
