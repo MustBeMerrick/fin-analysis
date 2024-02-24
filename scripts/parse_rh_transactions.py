@@ -168,7 +168,10 @@ for idx in reversed(df_und.index):
     # sell = pop from FIFO
     
     # check if sale was via call assignment
-    is_via_call_assignment, via_assignment_str, prems = sale_is_via_call_assignment(df_und, idx)
+    is_via_call_assignment, via_assignment_str, call_prem = sale_is_via_call_assignment(df_und, idx)
+
+    # calculate call_prem per share
+    call_prem_per_share = call_prem / float(df_und.loc[idx]['Quantity'])
 
     print_sale_str(is_via_call_assignment,
                    float(df_und.loc[idx]['Quantity']),
@@ -176,12 +179,13 @@ for idx in reversed(df_und.index):
                    df_und.loc[idx]['Activity Date'],
                    df_und.loc[idx]['Price'],
                    float(df_und.loc[idx]['Amount']),
-                   prems)
-    print("     Security   Date Sold    Quantity    Proceeds   Date Acquired       Price      Cost Basis  Cost Basis (adj)          PL")
+                   call_prem)
+    print("     Security   Date Sold    Quantity    Proceeds  Proceeds (adj)   Date Acquired       Price      Cost Basis  Cost Basis (adj)          PL")
     remaining_quantity = float(df_und.loc[idx]['Quantity'])
     proceeds_per_share = float(df_und.loc[idx]['Amount'])/remaining_quantity
     pl_aggr = 0
     proceeds_aggr = 0
+    proceeds_adj_aggr = 0
     cb_aggr = 0
     cb_adj_aggr = 0
     while remaining_quantity > 0:
@@ -210,31 +214,35 @@ for idx in reversed(df_und.index):
       #endif
 
       # fetch prems to adjust cost basis if needed (returns 0 if not due to put assignment)
-      prems_per_share = fetch_put_prems(buy_date, locale.currency(abs(cb_per_share)))
+      put_prems_per_share = fetch_put_prems(buy_date, locale.currency(abs(cb_per_share)))
 
-      # accumulate proceeds
+      # accumulate proceeds/proceeds_adj
       proceeds_i = proceeds_per_share * buy_quantity
       proceeds_aggr += proceeds_i
+
+      proceeds_adj_i = proceeds_i + (call_prem_per_share * buy_quantity)
+      proceeds_adj_aggr += proceeds_adj_i
 
       # accumulate cb/cb_adj
       cb_i = abs(cb_per_share*buy_quantity)
       cb_aggr += cb_i
 
-      cb_adj_i = cb_i - (prems_per_share * buy_quantity)
+      cb_adj_i = cb_i - (put_prems_per_share * buy_quantity)
       cb_adj_aggr += cb_adj_i
 
       # accumulate PL
-      pl_i = ((proceeds_per_share + cb_per_share) * buy_quantity) + (prems_per_share * buy_quantity)
+      pl_i = proceeds_adj_i - cb_adj_i
       pl_aggr += pl_i
 
       # update remaining quantity
       remaining_quantity -= buy_quantity
 
       # print purchase sub-line
-      acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>18}{:>12}".format(args.underlier,
+      acq_print_str = "     {:>8}{:>12}{:>12}{:>12}{:>16}{:>16}{:>12}{:>16}{:>18}{:>12}".format(args.underlier,
                                                                                           df_und.loc[idx]['Activity Date'],
                                                                                           "{:.5f}".format(buy_quantity),
                                                                                           locale.currency(proceeds_i, grouping=True),
+                                                                                          locale.currency(proceeds_adj_i, grouping=True),
                                                                                           buy_date,
                                                                                           locale.currency(abs(cb_per_share)),
                                                                                           locale.currency(cb_i, grouping=True),
@@ -243,10 +251,11 @@ for idx in reversed(df_und.index):
       print(acq_print_str)
 
     print("-----------------------------------------------------------------------------------------------------------------------------")
-    total_print_str="Total:{:>7}{:>12}{:>12}{:>12}{:>16}{:>12}{:>16}{:>18}{:>12}".format("",
+    total_print_str="Total:{:>7}{:>12}{:>12}{:>12}{:>16}{:>16}{:>12}{:>16}{:>18}{:>12}".format("",
                                                                                          "",
                                                                                          "",
                                                                                          locale.currency(proceeds_aggr, grouping=True),
+                                                                                         locale.currency(proceeds_adj_aggr, grouping=True),
                                                                                          "",
                                                                                          "",
                                                                                          locale.currency(cb_aggr, grouping=True),
