@@ -99,6 +99,7 @@ def sale_is_via_call_assignment(df_und, idx):
   return is_via_call_assignment, via_assignment_str, prems
 
 def fetch_put_prems(date_str, price_str):
+  global df_puts
   # build option name
   option_name = args.underlier + " " + date_str + " Put" + " " + price_str
 
@@ -106,11 +107,15 @@ def fetch_put_prems(date_str, price_str):
   df_puts_tmp = df_puts[df_puts['Description'] == option_name]
 
   # aggregate put premiums (if purchase was due to put assignment)
-  prems_sum = 0.0
+  prem_per_share = 0.0
   if df_puts_tmp.empty == False:
     prems_sum = df_puts_tmp['Amount'].astype(float).sum()
+    shares = df_puts_tmp['Quantity'].astype(float).sum()
+    shares *= 100
 
-  return prems_sum
+    prem_per_share = prems_sum / shares
+
+  return prem_per_share
 
 
 def print_sale_str(is_via_call_assignment, quantity, via_assignment_str, date, price, notional, prems):
@@ -205,21 +210,24 @@ for idx in reversed(df_und.index):
       #endif
 
       # fetch prems to adjust cost basis if needed (returns 0 if not due to put assignment)
-      prem_total = fetch_put_prems(buy_date, locale.currency(abs(cb_per_share)))
+      prems_per_share = fetch_put_prems(buy_date, locale.currency(abs(cb_per_share)))
 
-      # accumulate proceeds, cb/cb_adj, P/L and update remaining_quantity
+      # accumulate proceeds
       proceeds_i = proceeds_per_share * buy_quantity
       proceeds_aggr += proceeds_i
 
+      # accumulate cb/cb_adj
       cb_i = abs(cb_per_share*buy_quantity)
       cb_aggr += cb_i
 
-      cb_adj_i = cb_i - prem_total
+      cb_adj_i = cb_i - (prems_per_share * buy_quantity)
       cb_adj_aggr += cb_adj_i
 
-      pl_i = ((proceeds_per_share + cb_per_share) * buy_quantity) + prem_total
+      # accumulate PL
+      pl_i = ((proceeds_per_share + cb_per_share) * buy_quantity) + (prems_per_share * buy_quantity)
       pl_aggr += pl_i
 
+      # update remaining quantity
       remaining_quantity -= buy_quantity
 
       # print purchase sub-line
