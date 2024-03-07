@@ -16,7 +16,9 @@ quant_deque = deque()
 notional_deque = deque()
 
 # global put df
-df_puts = pd.DataFrame()
+df_puts = pd.DataFrame(columns=['Activity Date', 'Process Date', 'Settle Date', 
+                                'Instrument', 'Description', 'Trans Code', 
+                                'Quantity', 'Price', 'Amount'])
 
 # FIFO push
 def fifo_push(date, quantity, amount):
@@ -275,7 +277,7 @@ for idx in reversed(df_und.index):
       cum_shares += quant_deque[d_i]
 
     # calculate split factor
-    split = (cum_shares + add_shares)/cum_shares
+    split = round((cum_shares + add_shares)/cum_shares, 1)
     sf = "{0}:1".format(int(split)) if (split > 1.0) else "1:{0}".format(int(1/split))
     print(args.underlier, " ", sf, " split on", df_und.loc[idx]['Activity Date'])
 
